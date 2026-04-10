@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 import requests
 import os
 from dotenv import load_dotenv
@@ -26,6 +26,52 @@ app = FastAPI()
 @app.get("/ping")
 async def ping():
     return {"status": "ok", "service": "whatsapp_agent"}
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_policy():
+    """Public privacy policy page for app store / Meta WhatsApp configuration."""
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy Policy — Spheretech_AI</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #1a1a1a; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.1rem; margin-top: 1.5rem; }
+    footer { margin-top: 2rem; font-size: 0.9rem; color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Privacy Policy</h1>
+  <p><strong>Spheretech_AI</strong> (“we”, “us”) operates this WhatsApp automation service.</p>
+  <p><strong>Last updated:</strong> April 10, 2026</p>
+
+  <h2>Information we process</h2>
+  <p>When you message our WhatsApp business number, we may process your phone number (as provided by WhatsApp),
+  message content, and delivery metadata needed to reply to you.</p>
+
+  <h2>How we use it</h2>
+  <p>We use this information to operate the assistant, respond to requests, and improve reliability of the service.
+  We do not sell your personal information.</p>
+
+  <h2>Third parties</h2>
+  <p>Messages are delivered through <strong>WhatsApp</strong> and related Meta services, subject to their terms and policies.
+  Automated replies may use providers such as <strong>Google (Gemini)</strong> or other AI services you configure;
+  only content required to generate a reply is sent to those providers.</p>
+
+  <h2>Retention</h2>
+  <p>We retain data only as long as needed for the purposes above or as required by law. Contact us to ask about deletion  where applicable.</p>
+
+  <h2>Contact</h2>
+  <p>Email: <a href="mailto:spheretechai@gmail.com">spheretechai@gmail.com</a></p>
+
+  <footer>This page is provided for transparency. Review with legal counsel before production use.</footer>
+</body>
+</html>"""
+
 
 # -----------------------------
 # Consultant prompt (Gemini + Ollama)
