@@ -220,21 +220,29 @@ def ask_consultant_llm(user_msg: str) -> str:
 # WhatsApp Send Message
 # -----------------------------
 def send_whatsapp_message(to, text):
-    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    if not PHONE_NUMBER_ID or not WHATSAPP_TOKEN:
+        print("Send skipped: PHONE_NUMBER_ID or WHATSAPP_TOKEN missing")
+        return
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
 
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
         "Content-Type": "application/json"
     }
 
+    body = (text or "")[:4090]
     data = {
         "messaging_product": "whatsapp",
         "to": to,
-        "text": {"body": text}
+        "text": {"body": body}
     }
 
     try:
-        requests.post(url, headers=headers, json=data)
+        r = requests.post(url, headers=headers, json=data, timeout=30)
+        if r.status_code >= 400:
+            print("WhatsApp API error:", r.status_code, r.text)
+        else:
+            print("WhatsApp send OK:", r.status_code)
     except Exception as e:
         print("Send Error:", e)
 
@@ -354,6 +362,11 @@ async def webhook(request: Request):
     data = await request.json()
 
     try:
+        obj = data.get("object")
+        if obj != "whatsapp_business_account":
+            print("Webhook: ignored object type:", obj)
+            return {"status": "ok"}
+
         entry = data.get("entry", [])
         for e in entry:
             changes = e.get("changes", [])
@@ -361,16 +374,28 @@ async def webhook(request: Request):
                 value = change.get("value", {})
                 messages = value.get("messages")
 
-                if messages:
-                    msg = messages[0]
-                    user_msg = msg["text"]["body"]
-                    sender = msg["from"]
+                if not messages:
+                    continue
+
+                for msg in messages:
+                    if msg.get("type") != "text":
+                        print("Webhook: skip non-text type:", msg.get("type"))
+                        continue
+                    text_obj = msg.get("text") or {}
+                    user_msg = text_obj.get("body")
+                    if not user_msg:
+                        print("Webhook: empty text body")
+                        continue
+                    sender = msg.get("from")
+                    if not sender:
+                        print("Webhook: missing sender")
+                        continue
 
                     print(f"User ({sender}): {user_msg}")
 
                     reply = handle_message(user_msg, sender)
 
-                    print(f"Bot: {reply}")
+                    print(f"Bot: {reply[:200]}{'...' if len(reply) > 200 else ''}")
 
                     send_whatsapp_message(sender, reply)
 
