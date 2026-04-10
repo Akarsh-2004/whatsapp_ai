@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 import requests
 import os
 from dotenv import load_dotenv
@@ -26,6 +26,12 @@ app = FastAPI()
 @app.get("/ping")
 async def ping():
     return {"status": "ok", "service": "whatsapp_agent"}
+
+
+@app.head("/privacy")
+async def privacy_policy_head():
+    """Meta and other validators often use HEAD; without this, FastAPI returns 405 and URL looks 'invalid'."""
+    return Response(status_code=200, media_type="text/html; charset=utf-8")
 
 
 @app.get("/privacy", response_class=HTMLResponse)
@@ -69,6 +75,49 @@ async def privacy_policy():
   <p>Email: <a href="mailto:spheretechai@gmail.com">spheretechai@gmail.com</a></p>
 
   <footer>This page is provided for transparency. Review with legal counsel before production use.</footer>
+</body>
+</html>"""
+
+
+@app.head("/terms")
+async def terms_head():
+    return Response(status_code=200, media_type="text/html; charset=utf-8")
+
+
+@app.get("/terms", response_class=HTMLResponse)
+async def terms_of_service():
+    """Terms of Service — use as Terms URL in Meta (separate from privacy)."""
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Terms of Service — Spheretech_AI</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #1a1a1a; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.1rem; margin-top: 1.5rem; }
+    footer { margin-top: 2rem; font-size: 0.9rem; color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Terms of Service</h1>
+  <p><strong>Spheretech_AI</strong> — WhatsApp automation assistant.</p>
+  <p><strong>Last updated:</strong> April 10, 2026</p>
+
+  <h2>Service</h2>
+  <p>The service provides automated messaging and related features via WhatsApp. We may change or discontinue features with reasonable notice where practicable.</p>
+
+  <h2>Acceptable use</h2>
+  <p>You agree not to misuse the service, violate applicable law, or infringe others' rights. WhatsApp and Meta rules also apply.</p>
+
+  <h2>Disclaimer</h2>
+  <p>The service is provided “as is”. Automated replies may be inaccurate; verify important information independently.</p>
+
+  <h2>Contact</h2>
+  <p>Email: <a href="mailto:spheretechai@gmail.com">spheretechai@gmail.com</a></p>
+
+  <footer>Review with legal counsel before production use.</footer>
 </body>
 </html>"""
 
