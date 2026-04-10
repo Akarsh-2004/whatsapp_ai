@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.responses import PlainTextResponse
 import requests
 import os
 from dotenv import load_dotenv
@@ -234,12 +235,21 @@ Or continue here — we'll assist you!
 # -----------------------------
 @app.get("/webhook")
 async def verify(request: Request):
+    """Meta requires HTTP 200 with hub.challenge echoed as plain text (not JSON)."""
     params = request.query_params
+    mode = params.get("hub.mode")
+    token = params.get("hub.verify_token")
+    challenge = params.get("hub.challenge")
 
-    if params.get("hub.verify_token") == VERIFY_TOKEN:
-        return int(params.get("hub.challenge"))
+    if (
+        mode == "subscribe"
+        and VERIFY_TOKEN
+        and token == VERIFY_TOKEN
+        and challenge is not None
+    ):
+        return PlainTextResponse(content=challenge)
 
-    return {"error": "Invalid verification token"}
+    return PlainTextResponse(content="Forbidden", status_code=403)
 
 # -----------------------------
 # Receive Messages
