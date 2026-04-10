@@ -1,12 +1,26 @@
+from contextlib import asynccontextmanager
+import logging
+import os
+import sys
+
+import google.generativeai as genai
+import requests
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
-import requests
-import os
-from dotenv import load_dotenv
-import google.generativeai as genai
 
 # Load environment variables
 load_dotenv()
+
+# Render / Docker: stdout is not a TTY — plain print() can buffer and "hide" logs in the dashboard.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stdout,
+    force=True,
+)
+log = logging.getLogger("whatsapp_agent")
 
 # Configs from .env
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
@@ -20,7 +34,28 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL") or "llama3.2"
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log.info(
+        "Startup | service=whatsapp_agent | phone_number_id_set=%s | token_set=%s | verify_token_set=%s",
+        bool(PHONE_NUMBER_ID),
+        bool(WHATSAPP_TOKEN),
+        bool(VERIFY_TOKEN),
+    )
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.middleware("http")
+async def log_http(request: Request, call_next):
+    path = request.url.path
+    if path in ("/webhook", "/ping"):
+        log.info("HTTP %s %s", request.method, path)
+    response = await call_next(request)
+    return response
 
 
 @app.get("/ping")
@@ -184,7 +219,7 @@ def ask_gemini(user_msg: str) -> str | None:
         text = (response.text or "").strip()
         return text or None
     except Exception as e:
-        print("Gemini Error:", e)
+        log.warning("Gemini Error: %s", e)
         return None
 
 
@@ -203,7 +238,7 @@ def ask_ollama(user_msg: str) -> str | None:
         text = (msg.get("content") or "").strip()
         return text or None
     except Exception as e:
-        print("Ollama Error:", e)
+        log.warning("Ollama Error: %s", e)
         return None
 
 
@@ -221,7 +256,7 @@ def ask_consultant_llm(user_msg: str) -> str:
 # -----------------------------
 def send_whatsapp_message(to, text):
     if not PHONE_NUMBER_ID or not WHATSAPP_TOKEN:
-        print("Send skipped: PHONE_NUMBER_ID or WHATSAPP_TOKEN missing")
+        log.error("Send skipped: PHONE_NUMBER_ID or WHATSAPP_TOKEN missing")
         return
     url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
 
@@ -240,11 +275,11 @@ def send_whatsapp_message(to, text):
     try:
         r = requests.post(url, headers=headers, json=data, timeout=30)
         if r.status_code >= 400:
-            print("WhatsApp API error:", r.status_code, r.text)
+            log.error("WhatsApp API error: %s %s", r.status_code, r.text)
         else:
-            print("WhatsApp send OK:", r.status_code)
+            log.info("WhatsApp send OK: %s", r.status_code)
     except Exception as e:
-        print("Send Error:", e)
+        log.error("Send Error: %s", e)
 
 # -----------------------------
 # Intent Detection
@@ -364,7 +399,7 @@ async def webhook(request: Request):
     try:
         obj = data.get("object")
         if obj != "whatsapp_business_account":
-            print("Webhook: ignored object type:", obj)
+            log.warning("Webhook: ignored object type: %s", obj)
             return {"status": "ok"}
 
         entry = data.get("entry", [])
@@ -379,27 +414,31 @@ async def webhook(request: Request):
 
                 for msg in messages:
                     if msg.get("type") != "text":
-                        print("Webhook: skip non-text type:", msg.get("type"))
+                        log.info("Webhook: skip non-text type: %s", msg.get("type"))
                         continue
                     text_obj = msg.get("text") or {}
                     user_msg = text_obj.get("body")
                     if not user_msg:
-                        print("Webhook: empty text body")
+                        log.info("Webhook: empty text body")
                         continue
                     sender = msg.get("from")
                     if not sender:
-                        print("Webhook: missing sender")
+                        log.warning("Webhook: missing sender")
                         continue
 
-                    print(f"User ({sender}): {user_msg}")
+                    log.info("User (%s): %s", sender, user_msg)
 
                     reply = handle_message(user_msg, sender)
 
-                    print(f"Bot: {reply[:200]}{'...' if len(reply) > 200 else ''}")
+                    log.info(
+                        "Bot: %s%s",
+                        reply[:200],
+                        "..." if len(reply) > 200 else "",
+                    )
 
                     send_whatsapp_message(sender, reply)
 
     except Exception as e:
-        print("Webhook Error:", e)
+        log.exception("Webhook Error: %s", e)
 
     return {"status": "ok"}
