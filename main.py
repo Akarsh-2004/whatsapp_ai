@@ -22,10 +22,21 @@ logging.basicConfig(
 )
 log = logging.getLogger("whatsapp_agent")
 
-# Configs from .env
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN") or os.getenv("ACCESS_TOKEN")
-PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
+
+def _env_strip(name: str) -> str | None:
+    v = os.getenv(name)
+    if v is None:
+        return None
+    v = v.strip()
+    return v or None
+
+
+# Configs from .env (strip: pasted tokens often include accidental newline/space)
+VERIFY_TOKEN = _env_strip("VERIFY_TOKEN")
+_raw_whatsapp = _env_strip("WHATSAPP_TOKEN")
+_raw_access = _env_strip("ACCESS_TOKEN")
+WHATSAPP_TOKEN = _raw_whatsapp or _raw_access
+PHONE_NUMBER_ID = _env_strip("PHONE_NUMBER_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OLLAMA_BASE_URL = (os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL") or "llama3.2"
@@ -37,10 +48,18 @@ if GEMINI_API_KEY:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if _raw_whatsapp and _raw_access and _raw_whatsapp != _raw_access:
+        log.warning(
+            "Both WHATSAPP_TOKEN and ACCESS_TOKEN are set and differ. "
+            "The app uses WHATSAPP_TOKEN first. Remove or update the stale WHATSAPP_TOKEN on Render "
+            "if you pasted the new token only into ACCESS_TOKEN."
+        )
+    token_src = "WHATSAPP_TOKEN" if _raw_whatsapp else ("ACCESS_TOKEN" if _raw_access else "none")
     log.info(
-        "Startup | service=whatsapp_agent | phone_number_id_set=%s | token_set=%s | verify_token_set=%s",
+        "Startup | service=whatsapp_agent | phone_number_id_set=%s | token_set=%s | token_env=%s | verify_token_set=%s",
         bool(PHONE_NUMBER_ID),
         bool(WHATSAPP_TOKEN),
+        token_src,
         bool(VERIFY_TOKEN),
     )
     yield
