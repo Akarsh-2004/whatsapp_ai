@@ -33,10 +33,8 @@ def _env_strip(name: str) -> str | None:
 
 # Configs from .env (strip: pasted tokens often include accidental newline/space)
 VERIFY_TOKEN = _env_strip("VERIFY_TOKEN")
-_raw_whatsapp = _env_strip("WHATSAPP_TOKEN")
-_raw_access = _env_strip("ACCESS_TOKEN")
-WHATSAPP_TOKEN = _raw_whatsapp or _raw_access
-PHONE_NUMBER_ID = _env_strip("PHONE_NUMBER_ID")
+PAGE_ACCESS_TOKEN = _env_strip("PAGE_ACCESS_TOKEN")
+INSTAGRAM_ACCOUNT_ID = _env_strip("INSTAGRAM_ACCOUNT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OLLAMA_BASE_URL = (os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL") or "llama3.2"
@@ -48,18 +46,10 @@ if GEMINI_API_KEY:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if _raw_whatsapp and _raw_access and _raw_whatsapp != _raw_access:
-        log.warning(
-            "Both WHATSAPP_TOKEN and ACCESS_TOKEN are set and differ. "
-            "The app uses WHATSAPP_TOKEN first. Remove or update the stale WHATSAPP_TOKEN on Render "
-            "if you pasted the new token only into ACCESS_TOKEN."
-        )
-    token_src = "WHATSAPP_TOKEN" if _raw_whatsapp else ("ACCESS_TOKEN" if _raw_access else "none")
     log.info(
-        "Startup | service=whatsapp_agent | phone_number_id_set=%s | token_set=%s | token_env=%s | verify_token_set=%s",
-        bool(PHONE_NUMBER_ID),
-        bool(WHATSAPP_TOKEN),
-        token_src,
+        "Startup | service=instagram_agent | instagram_account_id_set=%s | token_set=%s | verify_token_set=%s",
+        bool(INSTAGRAM_ACCOUNT_ID),
+        bool(PAGE_ACCESS_TOKEN),
         bool(VERIFY_TOKEN),
     )
     yield
@@ -271,32 +261,31 @@ def ask_consultant_llm(user_msg: str) -> str:
     return "Sorry, I'm having trouble right now. Please try again later."
 
 # -----------------------------
-# WhatsApp Send Message
+# Instagram Send Message
 # -----------------------------
-def send_whatsapp_message(to, text):
-    if not PHONE_NUMBER_ID or not WHATSAPP_TOKEN:
-        log.error("Send skipped: PHONE_NUMBER_ID or WHATSAPP_TOKEN missing")
+def send_instagram_message(to, text):
+    if not INSTAGRAM_ACCOUNT_ID or not PAGE_ACCESS_TOKEN:
+        log.error("Send skipped: INSTAGRAM_ACCOUNT_ID or PAGE_ACCESS_TOKEN missing")
         return
-    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v21.0/me/messages"
 
     headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Authorization": f"Bearer {PAGE_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
 
     body = (text or "")[:4090]
     data = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "text": {"body": body}
+        "recipient": {"id": to},
+        "message": {"text": body}
     }
 
     try:
         r = requests.post(url, headers=headers, json=data, timeout=30)
         if r.status_code >= 400:
-            log.error("WhatsApp API error: %s %s", r.status_code, r.text)
+            log.error("Instagram API error: %s %s", r.status_code, r.text)
         else:
-            log.info("WhatsApp send OK: %s", r.status_code)
+            log.info("Instagram send OK: %s", r.status_code)
     except Exception as e:
         log.error("Send Error: %s", e)
 
@@ -417,45 +406,41 @@ async def webhook(request: Request):
 
     try:
         obj = data.get("object")
-        if obj != "whatsapp_business_account":
+        if obj != "instagram":
             log.warning("Webhook: ignored object type: %s", obj)
             return {"status": "ok"}
 
         entry = data.get("entry", [])
         for e in entry:
-            changes = e.get("changes", [])
-            for change in changes:
-                value = change.get("value", {})
-                messages = value.get("messages")
-
-                if not messages:
+            messaging = e.get("messaging", [])
+            for msg in messaging:
+                message_obj = msg.get("message")
+                if not message_obj:
+                    continue
+                
+                user_msg = message_obj.get("text")
+                if not user_msg:
+                    log.info("Webhook: empty text body")
+                    continue
+                
+                sender_obj = msg.get("sender")
+                sender = sender_obj.get("id") if sender_obj else None
+                
+                if not sender:
+                    log.warning("Webhook: missing sender")
                     continue
 
-                for msg in messages:
-                    if msg.get("type") != "text":
-                        log.info("Webhook: skip non-text type: %s", msg.get("type"))
-                        continue
-                    text_obj = msg.get("text") or {}
-                    user_msg = text_obj.get("body")
-                    if not user_msg:
-                        log.info("Webhook: empty text body")
-                        continue
-                    sender = msg.get("from")
-                    if not sender:
-                        log.warning("Webhook: missing sender")
-                        continue
+                log.info("User (%s): %s", sender, user_msg)
 
-                    log.info("User (%s): %s", sender, user_msg)
+                reply = handle_message(user_msg, sender)
 
-                    reply = handle_message(user_msg, sender)
+                log.info(
+                    "Bot: %s%s",
+                    reply[:200],
+                    "..." if len(reply) > 200 else "",
+                )
 
-                    log.info(
-                        "Bot: %s%s",
-                        reply[:200],
-                        "..." if len(reply) > 200 else "",
-                    )
-
-                    send_whatsapp_message(sender, reply)
+                send_instagram_message(sender, reply)
 
     except Exception as e:
         log.exception("Webhook Error: %s", e)
